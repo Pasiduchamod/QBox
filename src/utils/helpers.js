@@ -120,12 +120,11 @@ export const validateQuestion = (text) => {
 /**
  * Count questions by status
  * @param {Array} questions - Array of question objects
- * @returns {Object} - Count object { all, approved, answered, pending, hidden }
+ * @returns {Object} - Count object { all, answered, pending, hidden }
  */
-export const countQuestionsByStatus = (questions) => {
+export const getQuestionCounts = (questions) => {
   return {
     all: questions.length,
-    approved: questions.filter(q => q.status === 'approved').length,
     answered: questions.filter(q => q.status === 'answered').length,
     pending: questions.filter(q => q.status === 'pending').length,
     hidden: questions.filter(q => q.status === 'hidden').length,

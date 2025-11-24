@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -8,25 +8,23 @@ import {
   TouchableOpacity,
   Alert,
   Modal,
-  TextInput
+  TextInput,
+  ActivityIndicator
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, Card, Button } from '../components';
 import { colors, spacing, typography, borderRadius } from '../theme';
+import { userAPI } from '../services/api';
 
 export const SettingsScreen = ({ navigation, route }) => {
-  // Mock user type - this should come from authentication context
-  const userType = route.params?.userType || 'student'; // 'student' or 'lecturer'
+  const userType = route.params?.userType || 'student';
   
-  // Mock lecturer data - this should come from authentication context
-  const initialLecturerData = {
-    name: 'Dr. John Smith',
-    email: 'john.smith@university.edu'
-  };
-  
-  const [lecturerName, setLecturerName] = useState(initialLecturerData.name);
-  const [tempLecturerName, setTempLecturerName] = useState(initialLecturerData.name);
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [tempName, setTempName] = useState('');
+  const [tempEmail, setTempEmail] = useState('');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [activeModal, setActiveModal] = useState(null); // 'howItWorks', 'privacy', 'terms', 'editProfile', 'changePassword'
+  const [activeModal, setActiveModal] = useState(null);
   
   // Password change states
   const [currentPassword, setCurrentPassword] = useState('');
@@ -41,37 +39,94 @@ export const SettingsScreen = ({ navigation, route }) => {
     return `${animal}#${number}`;
   };
   
-  const [anonymousTag, setAnonymousTag] = useState(generateRandomTag());
+  const [anonymousTag, setAnonymousTag] = useState('');
+
+  // Fetch user profile data and student tag
+  useEffect(() => {
+    fetchUserProfile();
+    loadStudentTag();
+  }, []);
+
+  const loadStudentTag = async () => {
+    try {
+      const tag = await AsyncStorage.getItem('studentTag');
+      if (tag) {
+        setAnonymousTag(tag);
+      } else {
+        // Generate and save a new tag if none exists
+        const newTag = generateRandomTag();
+        setAnonymousTag(newTag);
+        await AsyncStorage.setItem('studentTag', newTag);
+      }
+    } catch (error) {
+      // Error loading tag, generate a new one
+      const newTag = generateRandomTag();
+      setAnonymousTag(newTag);
+    }
+  };
+
+  const fetchUserProfile = async () => {
+    // Only fetch profile for lecturers
+    if (userType !== 'lecturer') {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await userAPI.getProfile();
+      if (response.success) {
+        setUserData(response.data);
+        setTempName(response.data.name);
+        setTempEmail(response.data.email);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to load profile data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleRegenerateTag = () => {
     Alert.alert(
-      'Regenerate Anonymous Tag',
-      'Your anonymous identity will change. This cannot be undone.',
+      '⚠️ Warning',
+      'If you regenerate your tag, you will lose connection to your previous questions. They will appear as questions from another student, and you won\'t be able to identify them as yours.\n\nThis action cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Regenerate',
-          onPress: () => {
-            setAnonymousTag(generateRandomTag());
-            Alert.alert('✅ Success', 'Your anonymous tag has been regenerated');
+          style: 'destructive',
+          onPress: async () => {
+            const newTag = generateRandomTag();
+            setAnonymousTag(newTag);
+            await AsyncStorage.setItem('studentTag', newTag);
+            Alert.alert('✅ Tag Regenerated', 'You now have a new anonymous identity. Your previous questions will no longer show as yours.');
           },
         },
       ]
     );
   };
 
-  const handleSaveName = () => {
-    if (tempLecturerName.trim().length < 2) {
+  const handleSaveProfile = async () => {
+    if (tempName.trim().length < 2) {
       Alert.alert('Invalid Name', 'Name must be at least 2 characters long');
       return;
     }
-    setLecturerName(tempLecturerName.trim());
-    setActiveModal(null);
-    Alert.alert('✅ Success', 'Your name has been updated');
+
+    try {
+      const response = await userAPI.updateProfile(tempName.trim(), userData?.email);
+      if (response.success) {
+        setUserData(response.data);
+        setActiveModal(null);
+        Alert.alert('✅ Success', 'Your profile has been updated');
+      }
+    } catch (error) {
+      Alert.alert('Error', error.response?.data?.message || 'Failed to update profile');
+    }
   };
 
   const handleOpenEditProfile = () => {
-    setTempLecturerName(lecturerName);
+    setTempName(userData?.name || '');
     setActiveModal('editProfile');
   };
 
@@ -82,7 +137,7 @@ export const SettingsScreen = ({ navigation, route }) => {
     setActiveModal('changePassword');
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all password fields');
       return;
@@ -98,9 +153,15 @@ export const SettingsScreen = ({ navigation, route }) => {
       return;
     }
 
-    // Simulate API call
-    setActiveModal(null);
-    Alert.alert('✅ Success', 'Your password has been updated successfully');
+    try {
+      const response = await userAPI.changePassword(currentPassword, newPassword);
+      if (response.success) {
+        setActiveModal(null);
+        Alert.alert('✅ Success', 'Your password has been updated successfully');
+      }
+    } catch (error) {
+      Alert.alert('Error', error.response?.data?.message || 'Failed to change password');
+    }
   };
 
   const handleLogout = () => {
@@ -150,6 +211,12 @@ export const SettingsScreen = ({ navigation, route }) => {
 
   return (
     <Screen>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      ) : (
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
@@ -181,10 +248,10 @@ export const SettingsScreen = ({ navigation, route }) => {
                 <Text style={styles.avatarEmoji}>👨‍🏫</Text>
               </View>
               <View style={styles.profileInfo}>
-                <Text style={styles.lecturerName}>{lecturerName}</Text>
-                <Text style={styles.lecturerEmail}>{initialLecturerData.email}</Text>
+                <Text style={styles.lecturerName}>{userData?.name || 'Loading...'}</Text>
+                <Text style={styles.lecturerEmail}>{userData?.email || 'Loading...'}</Text>
                 <TouchableOpacity onPress={handleOpenEditProfile}>
-                  <Text style={styles.regenerateLink}>✏️ Edit Profile</Text>
+                  <Text style={styles.regenerateLink}>Edit Profile</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -265,7 +332,7 @@ export const SettingsScreen = ({ navigation, route }) => {
             icon="💬"
             title="Contact Support"
             description="Get help and report issues"
-            onPress={() => Alert.alert('Contact Support', 'Need help? Email us at support@qbox.app and we\'ll get back to you within 24 hours.')}
+            onPress={() => Alert.alert('Contact Support', 'Need help? Email us at axlesolutionsinfo@gmail.com and we\'ll get back to you within 24 hours.')}
           />
           <View style={styles.divider} />
           <SettingItem
@@ -292,6 +359,7 @@ export const SettingsScreen = ({ navigation, route }) => {
           Made with ❤️ for better learning
         </Text>
       </ScrollView>
+      )}
 
       {/* How it Works Modal */}
       <Modal
@@ -313,7 +381,7 @@ export const SettingsScreen = ({ navigation, route }) => {
                 <Text style={styles.featureText}>• Join rooms using a 6-character code</Text>
                 <Text style={styles.featureText}>• Ask questions anonymously with a random tag</Text>
                 <Text style={styles.featureText}>• Upvote questions you find interesting</Text>
-                <Text style={styles.featureText}>• See approved and answered questions</Text>
+                <Text style={styles.featureText}>• See answered questions</Text>
                 <Text style={styles.featureText}>• Report inappropriate content</Text>
               </View>
 
@@ -321,7 +389,7 @@ export const SettingsScreen = ({ navigation, route }) => {
                 <Text style={styles.featureTitle}>👨‍🏫 For Lecturers</Text>
                 <Text style={styles.featureText}>• Create rooms with custom names</Text>
                 <Text style={styles.featureText}>• Share room codes with students</Text>
-                <Text style={styles.featureText}>• Manage pending, approved, and answered questions</Text>
+                <Text style={styles.featureText}>• Manage pending and answered questions</Text>
                 <Text style={styles.featureText}>• Mark questions as answered when addressed</Text>
                 <Text style={styles.featureText}>• Close rooms when sessions end</Text>
                 <Text style={styles.featureText}>• Choose between public or private question visibility</Text>
@@ -392,7 +460,7 @@ export const SettingsScreen = ({ navigation, route }) => {
               <View style={styles.featureSection}>
                 <Text style={styles.featureTitle}>📧 Contact</Text>
                 <Text style={styles.featureText}>
-                  Questions about privacy? Email us at privacy@qbox.app
+                  Questions about privacy? Email us at axlesolutionsinfo@gmail.com
                 </Text>
               </View>
 
@@ -497,18 +565,18 @@ export const SettingsScreen = ({ navigation, route }) => {
               <Text style={styles.inputLabel}>Full Name</Text>
               <TextInput
                 style={styles.input}
-                value={tempLecturerName}
-                onChangeText={setTempLecturerName}
+                value={tempName}
+                onChangeText={setTempName}
                 placeholder="Enter your full name"
                 placeholderTextColor={colors.textTertiary}
                 autoFocus
               />
-              <Text style={styles.inputHint}>This name will be visible to you only</Text>
+              <Text style={styles.inputHint}>This name will be visible in your account</Text>
             </View>
 
             <View style={styles.editSection}>
               <Text style={styles.inputLabel}>Email</Text>
-              <Text style={styles.emailDisplay}>{initialLecturerData.email}</Text>
+              <Text style={styles.emailDisplay}>{userData?.email}</Text>
               <Text style={styles.inputHint}>Email cannot be changed</Text>
             </View>
 
@@ -522,7 +590,7 @@ export const SettingsScreen = ({ navigation, route }) => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.saveButton}
-                onPress={handleSaveName}
+                onPress={handleSaveProfile}
                 activeOpacity={0.8}
               >
                 <Text style={styles.saveButtonText}>Save Changes</Text>
@@ -608,6 +676,19 @@ export const SettingsScreen = ({ navigation, route }) => {
 };
 
 const styles = StyleSheet.create({
+  // Loading
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontSize: typography.md,
+    color: colors.textSecondary,
+  },
+
   // Header
   header: {
     marginBottom: spacing.lg,

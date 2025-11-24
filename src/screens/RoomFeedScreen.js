@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -7,72 +7,156 @@ import {
   TouchableOpacity,
   RefreshControl,
   Alert,
-  Modal
+  Modal,
+  ActivityIndicator
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, QuestionCard } from '../components';
 import { colors, spacing, typography, borderRadius, shadows } from '../theme';
-
-// Mock data
-const MOCK_QUESTIONS = [
-  {
-    id: '1',
-    question: 'What is the difference between synchronous and asynchronous programming?',
-    upvotes: 15,
-    status: 'approved',
-    isMyQuestion: false,
-  },
-  {
-    id: '2',
-    question: 'Can you explain how React hooks work under the hood?',
-    upvotes: 23,
-    status: 'answered',
-    isMyQuestion: false,
-  },
-  {
-    id: '3',
-    question: 'Is there a recommended design pattern for state management in large applications?',
-    upvotes: 8,
-    status: 'pending',
-    isMyQuestion: true,
-  },
-  {
-    id: '4',
-    question: 'How do I properly handle errors in async/await functions?',
-    upvotes: 12,
-    status: 'approved',
-    isMyQuestion: false,
-  },
-  {
-    id: '5',
-    question: 'What are the best practices for API security?',
-    upvotes: 19,
-    status: 'answered',
-    isMyQuestion: true,
-  },
-  {
-    id: '6',
-    question: 'What are the best practices for API security?',
-    upvotes: 19,
-    status: 'answered',
-    isMyQuestion: true,
-  },
-];
+import { questionAPI, getSocket, initSocket } from '../services/api';
 
 export const RoomFeedScreen = ({ navigation, route }) => {
-  const { roomCode, questionsVisible, roomName, lecturerName } = route.params || {};
+  const { roomCode, questionsVisible, roomName, lecturerName, roomId, status } = route.params || {};
   const [activeFilter, setActiveFilter] = useState('all');
-  const [questions, setQuestions] = useState(MOCK_QUESTIONS);
+  const [questions, setQuestions] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [selectedQuestionId, setSelectedQuestionId] = useState(null);
+  const [studentTag, setStudentTag] = useState(null);
+  const studentTagRef = useRef(null);
 
-  console.log('RoomFeedScreen - questionsVisible:', questionsVisible);
+  // Update ref when studentTag changes
+  useEffect(() => {
+    studentTagRef.current = studentTag;
+  }, [studentTag]);
+
+  // Get student tag from AsyncStorage - reload when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      const getStudentTag = async () => {
+        try {
+          const tag = await AsyncStorage.getItem('studentTag');
+          setStudentTag(tag);
+        } catch (error) {
+          // Error getting student tag
+        }
+      };
+      getStudentTag();
+    }, [])
+  );
+
+  // Fetch questions from API
+  const fetchQuestions = useCallback(async () => {
+    try {
+      const response = await questionAPI.getQuestions(roomId, studentTag);
+
+      if (response.success) {
+        // Transform API data to match component structure
+        const transformedQuestions = response.data.map(q => ({
+          id: q._id,
+          _id: q._id,
+          question: q.questionText,
+          upvotes: q.upvotes,
+          status: q.status,
+          isMyQuestion: q.studentTag === studentTag,
+          studentTag: q.studentTag,
+          isReported: q.isReported,
+          answer: q.answer
+        }));
+        setQuestions(transformedQuestions);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to load questions. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [roomId, studentTag]);
+
+  // Setup socket listeners for real-time updates
+  useEffect(() => {
+    const socket = getSocket() || initSocket();
+    if (!socket || !roomCode) return;
+
+    if (!socket.connected) {
+      socket.on('connect', () => {
+        socket.emit('join-room', roomCode);
+      });
+    } else {
+      socket.emit('join-room', roomCode);
+    }
+
+    const handleNewQuestion = (question) => {
+      setQuestions(prev => {
+        const exists = prev.some(q => q._id === question._id || q.id === question._id);
+        if (exists) return prev;
+        
+        const newQuestion = {
+          id: question._id,
+          _id: question._id,
+          question: question.questionText,
+          upvotes: question.upvotes || 0,
+          status: question.status || 'pending',
+          isMyQuestion: question.studentTag === studentTagRef.current,
+          studentTag: question.studentTag,
+          isReported: question.isReported || false,
+          answer: question.answer || null
+        };
+        return [newQuestion, ...prev];
+      });
+    };
+
+    const handleUpvoteUpdate = ({ questionId, upvotes }) => {
+      setQuestions(prev =>
+        prev.map(q => (q._id === questionId || q.id === questionId) ? { ...q, upvotes } : q)
+      );
+    };
+
+    const handleQuestionAnswered = ({ questionId }) => {
+      setQuestions(prev =>
+        prev.map(q => (q._id === questionId || q.id === questionId) ? { ...q, status: 'answered' } : q)
+      );
+    };
+
+    const handleQuestionRemoved = ({ questionId }) => {
+      setQuestions(prev => prev.filter(q => q._id !== questionId && q.id !== questionId));
+    };
+
+    const handleVisibilityChanged = ({ questionsVisible }) => {
+      // Room visibility changed
+    };
+
+    socket.on('new-question', handleNewQuestion);
+    socket.on('question-upvote-update', handleUpvoteUpdate);
+    socket.on('question-marked-answered', handleQuestionAnswered);
+    socket.on('question-removed', handleQuestionRemoved);
+    socket.on('room-visibility-changed', handleVisibilityChanged);
+
+    return () => {
+      socket.off('new-question', handleNewQuestion);
+      socket.off('question-upvote-update', handleUpvoteUpdate);
+      socket.off('question-marked-answered', handleQuestionAnswered);
+      socket.off('question-removed', handleQuestionRemoved);
+      socket.off('room-visibility-changed', handleVisibilityChanged);
+    };
+  }, [roomCode]); // Remove studentTag from dependencies to prevent re-setup
+
+  // Fetch questions when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (roomId && studentTag) {
+        setLoading(true);
+        fetchQuestions();
+      }
+    }, [roomId, studentTag, fetchQuestions])
+  );
 
   // Filter questions based on visibility and ownership
   const getVisibleQuestions = () => {
     if (questionsVisible) {
-      // If questions are visible to all, show approved and answered questions + user's own questions
-      return questions.filter(q => q.status !== 'pending' || q.isMyQuestion);
+      // If questions are visible to all, show all questions
+      return questions;
     } else {
       // If questions are private, only show user's own questions
       return questions.filter(q => q.isMyQuestion);
@@ -83,21 +167,33 @@ export const RoomFeedScreen = ({ navigation, route }) => {
 
   const filters = [
     { id: 'all', label: 'All', count: visibleQuestions.length },
-    { id: 'approved', label: 'Approved', count: visibleQuestions.filter(q => q.status === 'approved').length },
+    { id: 'mine', label: 'My Questions', count: visibleQuestions.filter(q => q.isMyQuestion).length },
+    { id: 'pending', label: 'Pending', count: visibleQuestions.filter(q => q.status === 'pending').length },
     { id: 'answered', label: 'Answered', count: visibleQuestions.filter(q => q.status === 'answered').length },
   ];
 
   const getFilteredQuestions = () => {
     if (activeFilter === 'all') return visibleQuestions;
+    if (activeFilter === 'mine') return visibleQuestions.filter(q => q.isMyQuestion);
+    if (activeFilter === 'answered') return visibleQuestions.filter(q => q.status === 'answered');
     return visibleQuestions.filter(q => q.status === activeFilter);
   };
 
-  const handleUpvote = (questionId) => {
-    setQuestions(prevQuestions =>
-      prevQuestions.map(q =>
-        q.id === questionId ? { ...q, upvotes: q.upvotes + 1 } : q
-      )
-    );
+  const handleUpvote = async (questionId) => {
+    try {
+      const response = await questionAPI.upvoteQuestion(questionId);
+
+      if (response.success) {
+        // Update local state
+        setQuestions(prevQuestions =>
+          prevQuestions.map(q =>
+            q._id === questionId ? { ...q, upvotes: response.data.upvotes } : q
+          )
+        );
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to upvote question. Please try again.');
+    }
   };
 
   const handleReport = (questionId) => {
@@ -105,22 +201,55 @@ export const RoomFeedScreen = ({ navigation, route }) => {
     setReportModalVisible(true);
   };
 
-  const submitReport = (reason) => {
-    setReportModalVisible(false);
-    Alert.alert('✅ Reported', `Question has been reported as ${reason.toLowerCase()}`);
+  const submitReport = async (reason) => {
+    try {
+      const response = await questionAPI.reportQuestion(selectedQuestionId, reason);
+
+      setReportModalVisible(false);
+
+      if (response.success) {
+        Alert.alert('✅ Reported', `Question has been reported as ${reason.toLowerCase()}`);
+        // Update local state to mark as reported
+        setQuestions(prevQuestions =>
+          prevQuestions.map(q =>
+            q._id === selectedQuestionId ? { ...q, isReported: true } : q
+          )
+        );
+      } else {
+        Alert.alert('Error', response.message || 'Unable to report question');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to report question. Please try again.');
+      setReportModalVisible(false);
+    }
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setRefreshing(true);
-    // Simulate API call
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+    await fetchQuestions();
+    setRefreshing(false);
   };
 
   const handleAskQuestion = () => {
-    navigation.navigate('AskQuestion', { roomCode, questionsVisible });
+    navigation.navigate('AskQuestion', { 
+      roomCode, 
+      roomId, 
+      questionsVisible,
+      studentTag 
+    });
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <Screen>
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading questions...</Text>
+        </View>
+      </Screen>
+    );
+  }
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -150,35 +279,68 @@ export const RoomFeedScreen = ({ navigation, route }) => {
       
       {/* Filter Tabs */}
       <View style={styles.filterContainer}>
-        {filters.map(filter => (
-          <TouchableOpacity
-            key={filter.id}
-            style={[
-              styles.filterTab,
-              activeFilter === filter.id && styles.filterTabActive
-            ]}
-            onPress={() => setActiveFilter(filter.id)}
-            activeOpacity={0.7}
-          >
-            <Text style={[
-              styles.filterText,
-              activeFilter === filter.id && styles.filterTextActive
-            ]}>
-              {filter.label}
-            </Text>
-            <View style={[
-              styles.filterBadge,
-              activeFilter === filter.id && styles.filterBadgeActive
-            ]}>
+        <View style={styles.filterRow}>
+          {filters.slice(0, 2).map(filter => (
+            <TouchableOpacity
+              key={filter.id}
+              style={[
+                styles.filterTab,
+                activeFilter === filter.id && styles.filterTabActive
+              ]}
+              onPress={() => setActiveFilter(filter.id)}
+              activeOpacity={0.7}
+            >
               <Text style={[
-                styles.filterBadgeText,
-                activeFilter === filter.id && styles.filterBadgeTextActive
+                styles.filterText,
+                activeFilter === filter.id && styles.filterTextActive
               ]}>
-                {filter.count}
+                {filter.label}
               </Text>
-            </View>
-          </TouchableOpacity>
-        ))}
+              <View style={[
+                styles.filterBadge,
+                activeFilter === filter.id && styles.filterBadgeActive
+              ]}>
+                <Text style={[
+                  styles.filterBadgeText,
+                  activeFilter === filter.id && styles.filterBadgeTextActive
+                ]}>
+                  {filter.count}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={styles.filterRow}>
+          {filters.slice(2).map(filter => (
+            <TouchableOpacity
+              key={filter.id}
+              style={[
+                styles.filterTab,
+                activeFilter === filter.id && styles.filterTabActive
+              ]}
+              onPress={() => setActiveFilter(filter.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={[
+                styles.filterText,
+                activeFilter === filter.id && styles.filterTextActive
+              ]}>
+                {filter.label}
+              </Text>
+              <View style={[
+                styles.filterBadge,
+                activeFilter === filter.id && styles.filterBadgeActive
+              ]}>
+                <Text style={[
+                  styles.filterBadgeText,
+                  activeFilter === filter.id && styles.filterBadgeTextActive
+                ]}>
+                  {filter.count}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
     </View>
   );
@@ -204,15 +366,12 @@ export const RoomFeedScreen = ({ navigation, route }) => {
         keyExtractor={item => item.id}
         renderItem={({ item }) => (
           <View>
-            {item.isMyQuestion && (
-              <View style={styles.myQuestionBadge}>
-                <Text style={styles.myQuestionBadgeText}>✓ Your Question</Text>
-              </View>
-            )}
             <QuestionCard
               question={item.question}
               upvotes={item.upvotes}
               status={item.status}
+              studentTag={item.studentTag}
+              isMyQuestion={item.isMyQuestion}
               onUpvote={() => handleUpvote(item.id)}
               onReport={() => handleReport(item.id)}
               onPress={() => {/* Navigate to question details */}}
@@ -362,9 +521,12 @@ const styles = StyleSheet.create({
   
   // Filters
   filterContainer: {
-    flexDirection: 'row',
     gap: spacing.sm,
     marginBottom: spacing.md,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   filterTab: {
     flex: 1,
@@ -554,6 +716,18 @@ const styles = StyleSheet.create({
     fontWeight: typography.medium,
     color: colors.textSecondary,
     textAlign: 'center',
+  },
+  
+  // Loading State
+  centerContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontSize: typography.md,
+    color: colors.textSecondary,
   },
 });
 

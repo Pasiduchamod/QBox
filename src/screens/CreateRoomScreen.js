@@ -3,27 +3,12 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Screen, Button, Input, Card } from '../components';
 import { colors, spacing, typography, borderRadius } from '../theme';
+import { roomAPI } from '../services/api';
 
 export const CreateRoomScreen = ({ navigation }) => {
   const [roomName, setRoomName] = useState('');
-  const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [questionsVisible, setQuestionsVisible] = useState(true);
-
-  // Generate room code
-  useEffect(() => {
-    generateRoomCode();
-  }, []);
-
-  const generateRoomCode = () => {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-    setRoomCode(code);
-  };
 
   const handleCreateRoom = async () => {
     if (roomName.trim().length === 0) {
@@ -33,24 +18,37 @@ export const CreateRoomScreen = ({ navigation }) => {
 
     setLoading(true);
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const response = await roomAPI.createRoom(roomName.trim(), questionsVisible);
+
+      if (response.success) {
+        const createdRoom = response.data;
+        navigation.navigate('LecturerPanel', {
+          roomId: createdRoom._id,
+          roomCode: createdRoom.roomCode,
+          roomName: createdRoom.roomName,
+          roomStatus: createdRoom.status,
+          questionsVisible: createdRoom.questionsVisible
+        });
+      } else {
+        Alert.alert('Error', response.message || 'Failed to create room');
+      }
+    } catch (error) {
+      let errorMessage = 'Unable to create room';
+      
+      if (error.response) {
+        errorMessage = error.response.data?.message || 'Server error';
+      } else if (error.request) {
+        errorMessage = 'Cannot reach server. Check your connection.';
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
       setLoading(false);
-      // Navigate to lecturer panel
-      navigation.navigate('LecturerPanel', { 
-        roomCode, 
-        roomName,
-        questionsVisible 
-      });
-    }, 1000);
+    }
   };
 
-  const handleCopyCode = async () => {
-    await Clipboard.setStringAsync(roomCode);
-    setCopied(true);
-    Alert.alert('✅ Copied!', `Room code ${roomCode} copied to clipboard`);
-    setTimeout(() => setCopied(false), 2000);
-  };
+
 
   return (
     <Screen style={styles.screen}>
@@ -72,33 +70,6 @@ export const CreateRoomScreen = ({ navigation }) => {
           maxLength={50}
           hint="This name will be visible to students who join"
         />
-
-        {/* Generated Room Code */}
-        <View style={styles.codeSection}>
-          <Text style={styles.codeLabel}>Your Room Code</Text>
-          
-          <Card style={styles.codeCard}>
-            <TouchableOpacity 
-              onPress={handleCopyCode}
-              activeOpacity={0.7}
-              style={styles.codeContainer}
-            >
-              <Text style={styles.roomCode}>{roomCode}</Text>
-              <View style={styles.copyBadge}>
-                <Text style={styles.copyText}>
-                  {copied ? '✓ Copied' : '📋 Tap to copy'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </Card>
-
-          <TouchableOpacity 
-            onPress={generateRoomCode}
-            style={styles.regenerateButton}
-          >
-            <Text style={styles.regenerateText}>🔄 Generate new code</Text>
-          </TouchableOpacity>
-        </View>
 
         {/* Question Visibility Toggle */}
         <View style={styles.visibilitySection}>
@@ -186,65 +157,6 @@ const styles = StyleSheet.create({
     fontSize: typography.md,
     color: colors.textSecondary,
     lineHeight: typography.lineHeight.relaxed * typography.md,
-  },
-  
-  // Illustration
-  illustrationContainer: {
-    alignItems: 'center',
-    marginVertical: spacing.xl,
-  },
-  illustrationEmoji: {
-    fontSize: 64,
-  },
-  
-  // Room code section
-  codeSection: {
-    marginTop: spacing.lg,
-  },
-  codeLabel: {
-    fontSize: typography.md,
-    fontWeight: typography.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.sm,
-  },
-  codeCard: {
-    backgroundColor: colors.primaryLight + '15',
-    borderWidth: 2,
-    borderColor: colors.primary,
-    borderStyle: 'dashed',
-  },
-  codeContainer: {
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-  },
-  roomCode: {
-    fontSize: 40,
-    fontWeight: typography.bold,
-    color: colors.primary,
-    letterSpacing: 8,
-    marginBottom: spacing.sm,
-  },
-  copyBadge: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.lg,
-  },
-  copyText: {
-    fontSize: typography.sm,
-    color: colors.white,
-    fontWeight: typography.medium,
-  },
-  regenerateButton: {
-    alignSelf: 'center',
-    marginTop: spacing.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  regenerateText: {
-    fontSize: typography.sm,
-    color: colors.primary,
-    fontWeight: typography.medium,
   },
   
   // Visibility Section

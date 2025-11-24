@@ -1,63 +1,59 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
   FlatList, 
   TouchableOpacity,
-  RefreshControl 
+  RefreshControl,
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { Screen, Card } from '../components';
 import { colors, spacing, typography, borderRadius, shadows } from '../theme';
-
-// Mock data for past rooms
-const MOCK_ROOMS = [
-  {
-    id: '1',
-    roomName: 'Computer Science 101',
-    roomCode: 'ABC123',
-    createdAt: '2024-11-20',
-    status: 'active',
-    questionCount: 24,
-    studentsCount: 45,
-    questionsVisible: true,
-  },
-  {
-    id: '2',
-    roomName: 'Data Structures Lecture',
-    roomCode: 'XYZ789',
-    createdAt: '2024-11-18',
-    status: 'closed',
-    questionCount: 18,
-    studentsCount: 38,
-    questionsVisible: false,
-  },
-  {
-    id: '3',
-    roomName: 'Web Development Workshop',
-    roomCode: 'DEF456',
-    createdAt: '2024-11-15',
-    status: 'closed',
-    questionCount: 32,
-    studentsCount: 52,
-    questionsVisible: true,
-  },
-];
+import { roomAPI, authAPI } from '../services/api';
+import { useFocusEffect } from '@react-navigation/native';
 
 export const MyRoomsScreen = ({ navigation }) => {
-  const [rooms, setRooms] = useState(MOCK_ROOMS);
+  const [rooms, setRooms] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchRooms = async () => {
+    try {
+      const response = await roomAPI.getMyRooms();
+      
+      if (response.success) {
+        setRooms(response.data);
+      }
+    } catch (error) {
+      if (error.response?.status === 401) {
+        Alert.alert('Session Expired', 'Please login again');
+        await authAPI.logout();
+        navigation.replace('Login');
+      } else {
+        Alert.alert('Error', 'Failed to load rooms');
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchRooms();
+    }, [])
+  );
 
   const handleRefresh = () => {
     setRefreshing(true);
-    // Simulate API call
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+    fetchRooms();
   };
 
   const handleRoomPress = (room) => {
     navigation.navigate('LecturerPanel', { 
+      roomId: room._id,
       roomCode: room.roomCode, 
       roomName: room.roomName,
       roomStatus: room.status,
@@ -65,22 +61,52 @@ export const MyRoomsScreen = ({ navigation }) => {
     });
   };
 
+  const handleDeleteRoom = (room) => {
+    Alert.alert(
+      'Delete Room',
+      `Are you sure you want to delete "${room.roomName}"? This will permanently delete all questions in this room.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await roomAPI.deleteRoom(room._id);
+              if (response.success) {
+                Alert.alert('Success', 'Room deleted successfully');
+                fetchRooms(); // Refresh the list
+              } else {
+                Alert.alert('Error', response.message || 'Failed to delete room');
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete room');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderRoomCard = ({ item }) => (
-    <TouchableOpacity 
-      onPress={() => handleRoomPress(item)}
-      activeOpacity={0.7}
-    >
-      <Card style={styles.roomCard}>
+    <Card style={styles.roomCard}>
+      <TouchableOpacity 
+        onPress={() => handleRoomPress(item)}
+        activeOpacity={0.7}
+        style={styles.roomCardTouchable}
+      >
         <View style={styles.roomHeader}>
           <View style={styles.roomTitleContainer}>
-            <Text style={styles.roomName}>{item.roomName}</Text>
+            <Text style={styles.roomName} numberOfLines={1}>{item.roomName}</Text>
+          </View>
+          <View style={styles.roomCodeRow}>
+            <Text style={styles.roomCode}>{item.roomCode}</Text>
             <View style={[styles.statusBadge, item.status === 'active' ? styles.activeBadge : styles.closedBadge]}>
               <Text style={[styles.statusText, item.status === 'active' ? styles.activeText : styles.closedText]}>
                 {item.status === 'active' ? '🟢 Active' : '🔴 Closed'}
               </Text>
             </View>
           </View>
-          <Text style={styles.roomCode}>{item.roomCode}</Text>
         </View>
 
         <View style={styles.roomStats}>
@@ -92,7 +118,7 @@ export const MyRoomsScreen = ({ navigation }) => {
           <View style={styles.statItem}>
             <Text style={styles.statIcon}>👥</Text>
             <Text style={styles.statValue}>{item.studentsCount}</Text>
-            <Text style={styles.statLabel}>Students</Text>
+            <Text style={styles.statLabel}>Enrollments</Text>
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statIcon}>📅</Text>
@@ -100,8 +126,17 @@ export const MyRoomsScreen = ({ navigation }) => {
             <Text style={styles.statLabel}>Created</Text>
           </View>
         </View>
-      </Card>
-    </TouchableOpacity>
+      </TouchableOpacity>
+
+      {/* Delete Button */}
+      <TouchableOpacity 
+        style={styles.deleteButton}
+        onPress={() => handleDeleteRoom(item)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.deleteButtonText}>Delete</Text>
+      </TouchableOpacity>
+    </Card>
   );
 
   const renderHeader = () => (
@@ -139,11 +174,22 @@ export const MyRoomsScreen = ({ navigation }) => {
     </View>
   );
 
+  if (loading) {
+    return (
+      <Screen>
+        <View style={[styles.container, styles.centerContent]}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading rooms...</Text>
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <FlatList
         data={rooms}
-        keyExtractor={item => item.id}
+        keyExtractor={item => item._id}
         renderItem={renderRoomCard}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={renderEmptyState}
@@ -176,6 +222,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    ...typography.body,
+    color: colors.textSecondary,
   },
   listContent: {
     padding: spacing.lg,
@@ -217,6 +272,28 @@ const styles = StyleSheet.create({
   // Room card
   roomCard: {
     marginBottom: spacing.md,
+    position: 'relative',
+  },
+  roomCardTouchable: {
+    flex: 1,
+  },
+  deleteButton: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.error,
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...shadows.md,
+  },
+  deleteButtonText: {
+    fontSize: typography.xs,
+    fontWeight: typography.semibold,
+    color: colors.white,
+    letterSpacing: 0.5,
   },
   roomHeader: {
     marginBottom: spacing.md,
@@ -224,8 +301,8 @@ const styles = StyleSheet.create({
   roomTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: spacing.sm,
+    paddingRight: 44, // Space for delete button
   },
   roomName: {
     fontSize: typography.lg,
@@ -233,11 +310,21 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flex: 1,
   },
+  roomCodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  roomCode: {
+    fontSize: typography.md,
+    fontWeight: typography.bold,
+    color: colors.primary,
+    letterSpacing: 2,
+  },
   statusBadge: {
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.sm,
     borderRadius: borderRadius.lg,
-    marginLeft: spacing.sm,
   },
   activeBadge: {
     backgroundColor: colors.success + '20',

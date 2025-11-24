@@ -11,8 +11,6 @@ export const Card = ({
 }) => {
   const getVariantStyle = () => {
     switch (variant) {
-      case 'approved':
-        return styles.approvedCard;
       case 'answered':
         return styles.answeredCard;
       case 'pending':
@@ -46,6 +44,8 @@ export const QuestionCard = ({
   question, 
   upvotes = 0, 
   status = 'pending',
+  studentTag = '',
+  isMyQuestion = false,
   onUpvote,
   onPress,
   onReport,
@@ -53,8 +53,6 @@ export const QuestionCard = ({
 }) => {
   const getStatusConfig = () => {
     switch (status) {
-      case 'approved':
-        return { label: 'Approved', color: colors.success, bg: colors.approved };
       case 'answered':
         return { label: 'Answered', color: colors.info, bg: colors.answered };
       case 'pending':
@@ -69,8 +67,18 @@ export const QuestionCard = ({
   const statusConfig = getStatusConfig();
 
   return (
-    <Card onPress={onPress} style={styles.questionCard}>
+    <Card onPress={onPress} style={[
+      styles.questionCard,
+      isMyQuestion && styles.myQuestionCard
+    ]}>
       <View style={styles.questionContent}>
+        {/* Student Tag */}
+        <View style={styles.questionHeader}>
+          <Text style={[styles.studentTag, isMyQuestion && styles.myStudentTag]}>
+            {isMyQuestion ? '👤 You' : `👤 ${studentTag}`}
+          </Text>
+        </View>
+        
         <Text style={styles.questionText}>{question}</Text>
         
         <View style={styles.questionFooter}>
@@ -121,10 +129,6 @@ const styles = StyleSheet.create({
   },
   
   // Variant styles
-  approvedCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: colors.success,
-  },
   answeredCard: {
     borderLeftWidth: 4,
     borderLeftColor: colors.info,
@@ -142,6 +146,23 @@ const styles = StyleSheet.create({
   // Question card specific
   questionCard: {
     marginBottom: spacing.md,
+  },
+  myQuestionCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary,
+    backgroundColor: colors.primary + '08',
+  },
+  questionHeader: {
+    marginBottom: spacing.xs,
+  },
+  studentTag: {
+    fontSize: typography.xs,
+    color: colors.textSecondary,
+    fontWeight: typography.medium,
+  },
+  myStudentTag: {
+    color: colors.primary,
+    fontWeight: typography.semibold,
   },
   questionContent: {
     flex: 1,

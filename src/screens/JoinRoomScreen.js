@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { Screen, Button, RoomCodeInput } from '../components';
 import { colors, spacing, typography } from '../theme';
+import { roomAPI } from '../services/api';
 
 export const JoinRoomScreen = ({ navigation }) => {
   const [roomCode, setRoomCode] = useState('');
@@ -17,16 +18,36 @@ export const JoinRoomScreen = ({ navigation }) => {
     setLoading(true);
     setError('');
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const response = await roomAPI.joinRoom(roomCode.trim().toUpperCase());
+
+      if (response.success) {
+        const roomData = response.data;
+        // Navigate to room feed with real data
+        navigation.navigate('RoomFeed', {
+          roomId: roomData.roomId,
+          roomCode: roomData.roomCode,
+          questionsVisible: roomData.questionsVisible,
+          roomName: roomData.roomName,
+          lecturerName: roomData.lecturerName,
+          status: roomData.status
+        });
+      } else {
+        setError(response.message || 'Failed to join room');
+      }
+    } catch (error) {
+      let errorMessage = 'Unable to join room';
+      
+      if (error.response) {
+        errorMessage = error.response.data?.message || 'Invalid room code or room is closed';
+      } else if (error.request) {
+        errorMessage = 'Cannot reach server. Check your connection.';
+      }
+      
+      setError(errorMessage);
+    } finally {
       setLoading(false);
-      // Mock: Get room settings from API (for now, default to private)
-      const questionsVisible = false; // This should come from the API based on room settings
-      const roomName = 'Computer Science 101'; // This should come from the API
-      const lecturerName = 'Dr. John Smith'; // This should come from the API
-      // Navigate to room feed
-      navigation.navigate('RoomFeed', { roomCode, questionsVisible, roomName, lecturerName });
-    }, 1000);
+    }
   };
 
   return (

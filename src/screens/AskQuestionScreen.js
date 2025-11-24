@@ -5,46 +5,56 @@ import {
   StyleSheet, 
   KeyboardAvoidingView, 
   Platform,
-  Alert,
   ScrollView
 } from 'react-native';
 import { Screen, Button, Input } from '../components';
 import { colors, spacing, typography, borderRadius } from '../theme';
+import { questionAPI } from '../services/api';
 
 export const AskQuestionScreen = ({ navigation, route }) => {
-  const { roomCode } = route.params || {};
+  const { roomCode, roomId, studentTag } = route.params || {};
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
   const MAX_QUESTION_LENGTH = 500;
 
   const handleSubmit = async () => {
     if (question.trim().length < 10) {
-      Alert.alert('Too short', 'Please write a more detailed question (at least 10 characters)');
+      setError('Please write a more detailed question (at least 10 characters)');
       return;
     }
 
     setLoading(true);
+    setError('');
+    setSuccess(false);
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const response = await questionAPI.askQuestion(question.trim(), roomId, roomCode);
+
+      if (response.success) {
+        setSuccess(true);
+        setQuestion('');
+        setTimeout(() => {
+          navigation.goBack();
+        }, 2000);
+      } else {
+        setError(response.message || 'Failed to submit question');
+      }
+    } catch (error) {
+      let errorMessage = 'Unable to submit question';
+      
+      if (error.response) {
+        errorMessage = error.response.data?.message || 'Failed to submit question';
+      } else if (error.request) {
+        errorMessage = 'Cannot reach server. Check your connection.';
+      }
+      
+      setError(errorMessage);
+    } finally {
       setLoading(false);
-      Alert.alert(
-        'Question Submitted! 🎉',
-        'Your anonymous question has been submitted successfully',
-        [
-          {
-            text: 'Ask Another',
-            onPress: () => setQuestion(''),
-          },
-          {
-            text: 'Back to Feed',
-            onPress: () => navigation.goBack(),
-            style: 'cancel',
-          },
-        ]
-      );
-    }, 1000);
+    }
   };
 
   return (
@@ -66,6 +76,25 @@ export const AskQuestionScreen = ({ navigation, route }) => {
             </Text>
           </View>
 
+          {/* Success Message */}
+          {success && (
+            <View style={styles.successContainer}>
+              <Text style={styles.successIcon}>✅</Text>
+              <View style={styles.successTextContainer}>
+                <Text style={styles.successTitle}>Question Submitted!</Text>
+                <Text style={styles.successMessage}>Your question has been submitted successfully</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Error Message */}
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorIcon}>⚠️</Text>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
           {/* Anonymous Badge */}
           <View style={styles.anonymousBadge}>
             <Text style={styles.anonymousIcon}>🎭</Text>
@@ -82,7 +111,11 @@ export const AskQuestionScreen = ({ navigation, route }) => {
             <Input
               placeholder="Type your question here..."
               value={question}
-              onChangeText={setQuestion}
+              onChangeText={(text) => {
+                setQuestion(text);
+                setError('');
+                setSuccess(false);
+              }}
               multiline
               numberOfLines={8}
               maxLength={MAX_QUESTION_LENGTH}
