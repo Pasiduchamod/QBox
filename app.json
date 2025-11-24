@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "QBox",
+    "slug": "qbox-anonymous-qa",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#6366F1"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.qbox.anonymousqa"
+    },
+    "android": {
+      "package": "com.qbox.anonymousqa"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
