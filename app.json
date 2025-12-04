@@ -2,7 +2,7 @@
   "expo": {
     "name": "QBox",
     "slug": "qbox-anonymous-qa",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/Logo/icon.png",
@@ -24,7 +24,7 @@
         "backgroundColor": "#6366F1"
       },
       "package": "com.qbox.anonymousqa",
-      "versionCode": 7,
+      "versionCode": 8,
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE"

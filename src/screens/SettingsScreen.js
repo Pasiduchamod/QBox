@@ -285,7 +285,7 @@ export const SettingsScreen = ({ navigation, route }) => {
             title="App Version"
             description="Current version of QBox"
             rightComponent={
-              <Text style={styles.versionText}>1.0.0</Text>
+              <Text style={styles.versionText}>1.0.4</Text>
             }
           />
         </Card>
