@@ -88,20 +88,12 @@ export const LoginScreen = ({ navigation }) => {
         // Store one-time room flag
         await AsyncStorage.setItem('isOneTimeUser', 'true');
         
-        // Generate student tag if not exists (needed for RoomFeedScreen to load)
-        let studentTag = await AsyncStorage.getItem('studentTag');
-        if (!studentTag) {
-          const timestamp = Date.now().toString().slice(-4);
-          studentTag = `Lecturer ${timestamp}`;
-          await AsyncStorage.setItem('studentTag', studentTag);
-        }
-        
-        // Navigate directly to the room
-        navigation.replace('RoomFeed', { 
+        // Navigate to Lecturer Panel for one-time rooms
+        navigation.replace('LecturerPanel', { 
           roomId: response.data.room._id,
           roomCode: response.data.room.code,
           roomName: response.data.room.roomName,
-          lecturerName: response.data.room.lecturerName,
+          roomStatus: 'active',
           questionsVisible: response.data.room.questionsVisible,
           isOneTime: true
         });
