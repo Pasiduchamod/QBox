@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "Anonymous Q&A app for students",
   "main": "node_modules/expo/AppEntry.js",
+  "expo": {
+    "install": {
+      "exclude": []
+    }
+  },
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
